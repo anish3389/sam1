@@ -1,0 +1,73 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+  SQS:
+    Type: AWS::SQS::Queue
+ 
+  S3EventQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref SQS
+      PolicyDocument:
+        Version: '2012-10-17'
+        Id: queue-s3
+        Statement:
+        - Sid: allow sqs to s3
+          Effect: Allow
+          Principal:
+            Service: s3.amazonaws.com
+          Action:
+          - SQS:SendMessage
+          Resource: !GetAtt SQS.Arn
+          Condition:
+            ArnLike:
+              aws:SourceArn: !GetAtt S3Bucket.Arn
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Queue: !GetAtt SQS.Arn
+            Event: s3:ObjectCreated:Post
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
+
+  LambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      CodeUri: sam-function
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt SNSTopic.TopicName
+      Environment:
+        Variables:
+          SNSTopicARN: !Ref SNSTopic 
+      Events:
+        SQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt SQS.Arn    
+
+  SNSTopic:
+    Type: AWS::SNS::Topic
+
+  SNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: anish.sapkota@adex.ltd
+      TopicArn: !Ref SNSTopic
+
+Outputs:
+  LambdaFunction:
+    Description: Function ARN
+    Value: !GetAtt LambdaFunction.Arn
